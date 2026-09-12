@@ -26,6 +26,20 @@
 #include "display.h"
 #include "collision.h"
 #include "options.h"
+#include "esp_timer.h"   // telemetria: tempo gasto na rasterizacao
+
+// ---- Telemetria: tempo acumulado em tv_raster (renderizacao) -------------
+static int64_t s_renderAccumUs = 0;
+// emuapi.cpp: fskip do quadro atual (0 = renderiza este quadro). Lido DIRETO,
+// sem chamada de funcao -- uma chamada por scanline perturbava a icache do
+// laco do raster e custava ~1.4ms/quadro.
+extern int g_fskip;
+// emuapi.cpp: modo do frameskip (0=off, 1=seguro/colisao, 2=rapido/sem colisao).
+extern int g_frameSkipMode;
+// Lido pelo go.cpp uma vez por segundo. Soma o tempo de todas as chamadas de
+// tv_raster no periodo e zera. (Funcao C -> linkagem C, chamada com
+// extern "C" no go.cpp.)
+void emu_perfGetRender(int64_t *us) { *us = s_renderAccumUs; s_renderAccumUs = 0; }
 
 /* Color lookup tables. Used to speed up rendering */
 /* The current colour lookup table */
@@ -685,6 +699,55 @@ draw_vector_q (void)
   unified_count = 0;
 }
 
+/* Versao de SO' COLISAO do draw_vector_q, usada nos quadros pulados pelo
+ * frameskip. Faz a mesma varredura (incluindo o processamento de
+ * unified_change e scores, para manter o estado consistente) e atualiza o
+ * col_state (registradores de colisao do TIA), mas PULA o lookup de cor e a
+ * escrita no VBuf -- a parte cara. Assim jogos que dependem de colisao por
+ * quadro (Pitfall e o barril, etc.) continuam funcionando mesmo com
+ * frameskip. */
+static __inline void
+draw_vector_collision (void)
+{
+  int i;
+  int uct = 0;
+  int colval;
+
+  if(scores_val ==2)
+    {
+      scores_val=1;
+      colour_lookup=colour_ptrs[norm_val][scores_val];
+    }
+
+  while (uct < unified_count && unified[uct].x < 0)
+    use_unified_change (&unified[uct++]);
+
+  for (i = 0; i < 80; i++)
+    {
+      if (uct < unified_count && unified[uct].x == i)
+	use_unified_change (&unified[uct++]);
+      if((colval=colvect[i]))
+	col_state|=col_table[colval];       /* so' colisao, sem render */
+    }
+
+  if(scores_val ==1)
+    {
+      scores_val=2;
+      colour_lookup=colour_ptrs[norm_val][scores_val];
+    }
+  for (i = 80; i < 160; i++)
+    {
+      if (uct < unified_count && unified[uct].x == i)
+	use_unified_change (&unified[uct++]);
+      if((colval=colvect[i]))
+	col_state|=col_table[colval];       /* so' colisao, sem render */
+    }
+
+  while (uct < unified_count)
+    use_unified_change (&unified[uct++]);
+  unified_count = 0;
+}
+
 /* Used for when running in frame skipping mode */
 static __inline void
 update_registers (void)
@@ -715,10 +778,31 @@ update_registers (void)
 void
 tv_raster (int line)
 {
-//  if ( ((tv_counter % nOptions_SkipFrames) != 0)  || (line > theight) )
+  int64_t _t0 = esp_timer_get_time();
+  // Frameskip com 3 modos (g_frameSkipMode, alternado pelo F3):
+  //  - overscan (line > theight): so' update_registers, sempre.
+  //  - quadro pulado (g_fskip) numa linha visivel:
+  //      modo 2 (rapido): so' update_registers -- pula render E colisao (mais
+  //        fps, mas quebra jogos que dependem de colisao por quadro).
+  //      modo 1 (seguro): monta o colvect e detecta colisao, pula so' o
+  //        lookup de cor + escrita no VBuf (Pitfall & cia continuam corretos).
+  //  - quadro normal: colisao + render.
   if (line > theight)
   {
       update_registers ();
+  }
+  else if (g_fskip)
+  {
+      if (g_frameSkipMode == 2)
+      {
+          update_registers ();          // rapido: sem colisao
+      }
+      else
+      {
+          reset_vector ();
+          tv_rasterise (line);          // monta o colvect (objetos)
+          draw_vector_collision ();     // so' col_state, sem escrever pixels
+      }
   }
   else
   {
@@ -726,6 +810,7 @@ tv_raster (int line)
       tv_rasterise (line);
       draw_vector_q ();
   }
+  s_renderAccumUs += esp_timer_get_time() - _t0;
 }
 
 void

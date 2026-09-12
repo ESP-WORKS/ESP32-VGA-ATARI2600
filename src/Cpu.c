@@ -96,12 +96,10 @@ void
 mainloop (void)
 {
   register BYTE b;
-//  init_hardware ();
 
-//  int i=6000;
-  int i=15200/2;
-
-while (i--) 
+  int i = 60000;
+  pausing = 0;
+while (!pausing && i-- > 0)
 {
 
   do_screen (clkcount);

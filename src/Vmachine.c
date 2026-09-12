@@ -33,6 +33,7 @@
 #include "tiasound.h"
 
 #include "emuapi.h"
+extern int pausing;   // At2600.c; setado em tv_display para sinalizar fim de quadro
 
 #define snd 1
 
@@ -184,6 +185,7 @@ void tv_display (void)
     emu_DrawVsync();
   //}
   //tv_counter++;
+  pausing = 1;   // sinaliza fim de quadro real para o mainloop
 }
 
 /* Initialise the RIOT (also known as PIA) */
@@ -289,6 +291,16 @@ init_memory(void)
 void
 init_banking (void)
 {
+  // Auto-detecta o esquema de banco pelo tamanho da ROM.
+  if (rom_size <= 4096)       base_opts.bank = 0;
+  else if (rom_size == 8192)  base_opts.bank = 1;
+  else if (rom_size == 12288) base_opts.bank = 4;
+  else if (rom_size == 16384) base_opts.bank = 2;
+  else                        base_opts.bank = 0;
+
+  printf("[bank] rom_size=%d -> bank=%d\n", rom_size, base_opts.bank);
+  fflush(stdout);
+
   /* Set to the first bank */
   //dbg_message(DBG_NORMAL, "rom_size is set at %d bytes\n", rom_size);
   if (rom_size == 2048)
@@ -728,4 +740,3 @@ do_screen (int clks)
       break;
     }
 }
-

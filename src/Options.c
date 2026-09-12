@@ -37,7 +37,7 @@ struct BaseOptions {
   int mousey;
   int mitshm;
   int dbg_level;
-} base_opts={0,1,1,1,1,"",1,1,1,1,1,0,0};
+} base_opts={0,1,1,1,1,"",1,1,1,1,1,0,0};   // tvtype de volta a NTSC (PAL nao era a causa)
 
 char *argv[64];
 int argc;
@@ -47,4 +47,3 @@ void parse_options(void)
 {  
 //  base_opts.lcon = 1;
 }
-

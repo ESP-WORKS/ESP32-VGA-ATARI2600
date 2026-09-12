@@ -39,6 +39,7 @@
 #define M_KEY_USER1  0x0020   // Atari 2600: switch RESET do console (F11)
 #define M_KEY_USER2  0x0040   // Atari 2600: switch SELECT do console (F1)
 #define M_KEY_USER3  0x0080   // Atari 2600: switch COLOR/B&W do console (F2)
+#define M_KEY_USER4  0x2000   // F3: alterna o frameskip (tratado em go.cpp)
 #define M_KEY_MENU   0x4000   // F9: abre/fecha o menu de ROMs
 #define M_KEY_RESET  0x8000   // F10: recarrega o jogo atual (tratado em go.cpp)
 
@@ -159,6 +160,7 @@ static uint16_t maskOf(fabgl::VirtualKey vk) {
     // cada quadro -- go.cpp NAO os consome.
     case fabgl::VK_F1:     return M_KEY_USER2;  // SELECT
     case fabgl::VK_F2:     return M_KEY_USER3;  // COLOR / B&W
+    case fabgl::VK_F3:     return M_KEY_USER4;  // alterna frameskip
     case fabgl::VK_F9:     return M_KEY_MENU;   // menu de ROMs
     case fabgl::VK_F10:    return M_KEY_RESET;  // recarrega o jogo atual
     case fabgl::VK_F11:    return M_KEY_USER1;  // RESET do console (inicia o jogo)

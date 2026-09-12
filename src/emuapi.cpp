@@ -1514,7 +1514,17 @@ int emu_setKeymap(int index) {
 
 
 static unsigned short palette16[PALETTE_SIZE];
-static int fskip=0;
+// linkagem C garantida: o Raster.c (arquivo C) referencia g_fskip como
+// "extern int g_fskip". Sem extern "C" na definicao, o simbolo do C++ pode
+// nao casar com o do C no link.
+extern "C" { int g_fskip = 0; }    // exposto: o Raster.c le direto (sem chamada de funcao)
+
+// Modo de frameskip em RUNTIME. Ciclado pelo F3 (via go.cpp):
+//   0 = desligado (renderiza todo quadro, precisao total)
+//   1 = seguro   (pula 1 de 2, mas mantem a deteccao de colisao)
+//   2 = rapido   (pula 1 de 2 inteiro, sem colisao -- mais fps)
+// Lido tambem pelo Raster.c (C) -> linkagem C.
+extern "C" { int g_frameSkipMode = 0; }
 
 void emu_SetPaletteEntry(unsigned char r, unsigned char g, unsigned char b, int index)
 {
@@ -1527,13 +1537,13 @@ void emu_SetPaletteEntry(unsigned char r, unsigned char g, unsigned char b, int 
 void emu_DrawVsync(void)
 {
   //printf("sync %d\n",skip);  
-  fskip += 1;
-  fskip &= VID_FRAME_SKIP;
+  g_fskip += 1;
+  g_fskip &= (g_frameSkipMode ? 1 : 0);
 }
 
 void emu_DrawLine(unsigned char * VBuf, int width, int height, int line) 
 {
-  if (fskip==0) {
+  if (g_fskip==0) {
     video.writeLine(width,height,line, VBuf, palette16);
   }
 }  
@@ -1551,7 +1561,7 @@ extern "C" void emu_perfGetDraw(int64_t * us, int * count)
 
 void emu_DrawScreen(unsigned char * VBuf, int width, int height, int stride)
 {
-  if (fskip != 0) return;
+  if (g_fskip != 0) return;
 
   int64_t _t0 = esp_timer_get_time();
 
@@ -1568,7 +1578,7 @@ void emu_DrawScreen(unsigned char * VBuf, int width, int height, int stride)
 
 int emu_FrameSkip(void)
 {
-  return fskip;
+  return g_fskip;
 }
 
 void * emu_LineBuffer(int line)

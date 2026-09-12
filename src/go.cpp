@@ -16,6 +16,14 @@ extern void emu_ResetKeyState(void);
 // a contagem de quadros desenhados desde a ultima chamada (e zera).
 extern "C" void emu_perfGetDraw(int64_t * us, int * count);
 
+// Raster.c: telemetria da renderizacao -- devolve us acumulados em tv_raster
+// (todas as scanlines) desde a ultima chamada (e zera).
+extern "C" void emu_perfGetRender(int64_t * us);
+
+// emuapi.cpp: modo de frameskip em runtime (0=off, 1=seguro, 2=rapido).
+// Ciclado pelo F3.
+extern int g_frameSkipMode;
+
 #include "keyboard_osd.h"
 #ifdef HAS_PS2KBD
 #include "ps2kbd.h"
@@ -164,6 +172,17 @@ static void keys_step(void)
     }
     return;
   }
+  if (edge & MASK_KEY_USER4) {         // F3: cicla o modo de frameskip
+    g_frameSkipMode = (g_frameSkipMode + 1) % 3;
+    static const char *lbl[3] = {
+      "desligado (preciso)",
+      "seguro (colisao preservada, +fps)",
+      "rapido (sem colisao, mais fps)"
+    };
+    printf("[frameskip] %s\n", lbl[g_frameSkipMode]);
+    fflush(stdout);
+    return;
+  }
 }
 
 static void main_step(void)
@@ -229,23 +248,11 @@ void emu_loop(void)
   main_step();
   int64_t _w1 = esp_timer_get_time();
 
-  // ---- Cadencia de ~60 Hz (NTSC) -----------------------------------------
-  // vcs_Step() emula UM quadro inteiro e retorna. Sem cadencia, o emulador
-  // rodaria o mais rapido que a CPU deixasse. Dormimos o que sobrar de cada
-  // janela de 16.667 ms. So' aplica quando NAO estamos no menu (la' o
-  // main_step ja' tem seu proprio vTaskDelay).
+  // Sem cadencia forcada: o original do espvcs chamava vcs_Step() livre,
+  // sem sleep, e o frame rate saía do throughput da CPU. A cadência de 60Hz
+  // que eu tinha aqui estrangulava jogos que precisam de mais de 16.7ms/quadro
+  // (Enduro, Missile Command etc.) -- eles nunca terminavam o quadro.
   if (!menuActive()) {
-    static int64_t nextFrame = 0;
-    int64_t now = esp_timer_get_time();
-    if (nextFrame == 0) nextFrame = now;
-    nextFrame += 16667;                       // 1/60 s
-    int64_t wait = nextFrame - now;
-    if (wait > 1000) {
-      vTaskDelay((wait / 1000) / portTICK_PERIOD_MS);
-    } else if (wait < -200000) {
-      nextFrame = now;                        // muito atrasado: ressincroniza
-    }
-
     // Teclas do jogo: UMA leitura por quadro, nesta task, neste core.
     keys_step();
 
@@ -280,15 +287,19 @@ void emu_loop(void)
       if (span >= 1000000) {                     // ~1 s
         int64_t drawUs = 0; int drawCnt = 0;
         emu_perfGetDraw(&drawUs, &drawCnt);
+        int64_t renderUs = 0;
+        emu_perfGetRender(&renderUs);
 
         float secs    = span / 1000000.0f;
         float fps     = s_frames / secs;
         float frameMs = (s_workAcc / (float)s_frames) / 1000.0f;
         float drawMs  = drawCnt ? (drawUs / (float)drawCnt) / 1000.0f : 0.0f;
-        float coreMs  = frameMs - drawMs;        // core do 2600, sem o blit
+        float renderMs= (renderUs / (float)s_frames) / 1000.0f;  // tv_raster/quadro
+        float coreMs  = frameMs - drawMs;          // tudo menos o blit
+        float cpuMs   = coreMs - renderMs;         // CPU 6507 + memoria + overhead
 
-        printf("[tel] FPS=%.1f  quadro=%.2fms (2600=%.2f + video=%.2f)  %s  heapDMA=%u free=%u\n",
-               fps, frameMs, coreMs, drawMs,
+        printf("[tel] FPS=%.1f  quadro=%.2fms (cpu=%.2f + render=%.2f + video=%.2f)  %s  heapDMA=%u free=%u\n",
+               fps, frameMs, cpuMs, renderMs, drawMs,
                (frameMs >= 16.7f) ? "CPU-BOUND" : "com folga",
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
                (unsigned)ESP.getFreeHeap());
@@ -319,7 +330,7 @@ void setup()
   Serial.begin(115200);
   delay(200);
   Serial.println("\n=== MCUME espvcs (Atari 2600) - TTGO VGA32 ===");
-  Serial.println("PS/2:  F9=menu  F10=recarrega  F11=RESET  F1=SELECT  F2=COLOR/BW  F12=joystick");
+  Serial.println("PS/2:  F9=menu  F10=recarrega  F11=RESET  F1=SELECT  F2=COLOR/BW  F3=frameskip  F12=joystick");
   Serial.println("Joystick: gamepad da T-Display, ou Q/A/O/P/SPACE no PS/2 (F12).");
 
   // Integracao com o bootloader (fg1998/esp32-bootloader): apagar o otadata
