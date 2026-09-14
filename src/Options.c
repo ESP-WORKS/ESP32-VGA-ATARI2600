@@ -37,7 +37,7 @@ struct BaseOptions {
   int mousey;
   int mitshm;
   int dbg_level;
-} base_opts={0,1,1,1,1,"",1,1,1,1,1,0,0};   // tvtype de volta a NTSC (PAL nao era a causa)
+} base_opts={0,1,1,1,1,"",1,1,1,1,1,0,0};   // tvtype: 0=NTSC (auto-deteccao muda para PAL se necessario)
 
 char *argv[64];
 int argc;

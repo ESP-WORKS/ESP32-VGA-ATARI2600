@@ -335,7 +335,7 @@ void VGA_Video::blitAtari2x(const uint8_t *buf, int w, int h, int stride,
   for (int i = 0; i < 256; i++)
     pal6[i] = _rawLUT[ vga_rgb565to6(palette565 ? palette565[i] : (uint16_t)i) & 0x3F ];
 
-  int yoff = (VGA_YRES - h) / 2;            // 24 para 192 em 240
+  int yoff = (VGA_YRES - h) / 2;   // centraliza: 24px borda em cima e embaixo para frame 192 em 240
   if (yoff < 0) yoff = 0;
 
   int words = (w * 2) / 4;                  // 320/4 = 80 palavras por linha

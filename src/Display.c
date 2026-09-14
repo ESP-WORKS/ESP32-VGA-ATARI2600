@@ -83,7 +83,7 @@ int tv_on()
    /* Get the basic colors */
 	unsigned long m;
 
-  if (VBuf == 0) VBuf = (uint8 *)emu_Malloc((160)*192+8);
+  if (VBuf == 0) VBuf = (uint8 *)emu_Malloc((160)*(228+8)+8);  // 228 para PAL + margem
 
 	create_window();
 
@@ -96,13 +96,6 @@ int tv_on()
 		m&=0xFFFFFFF8;
 		VBuf=(uint8*)m;
 	} 
-	memset(VBuf,128,160*192);
+	memset(VBuf,128,160*(228+8));
 	return(1);
 }
-
-
-
-
-
-
-

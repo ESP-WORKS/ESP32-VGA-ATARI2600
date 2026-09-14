@@ -787,7 +787,7 @@ tv_raster (int line)
   //      modo 1 (seguro): monta o colvect e detecta colisao, pula so' o
   //        lookup de cor + escrita no VBuf (Pitfall & cia continuam corretos).
   //  - quadro normal: colisao + render.
-  if (line > theight)
+  if (line >= theight)    // >= evita escrita alem do VBuf[0..theight-1]
   {
       update_registers ();
   }

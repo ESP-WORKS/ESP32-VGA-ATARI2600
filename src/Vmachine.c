@@ -104,6 +104,10 @@ int ebeamx, ebeamy, sbeamx;
 int vbeam_state;		/* 1 2 8 or 16 */
 int hbeam_state;		/* 4 8 or 16 */
 
+// Flag para resetar a auto-deteccao PAL/NTSC a cada jogo (setado em init_hardware).
+int g_resetPalDetect = 0;
+int g_maxEbeamy = 0;   // maximo ebeamy medido no frame atual (para auto-deteccao PAL)
+
 /* The tv size, varies with PAL/NTSC */
 int tv_width, tv_height, tv_vsync, tv_vblank, tv_overscan, tv_frame, tv_hertz,
   tv_hsync;
@@ -178,14 +182,53 @@ init_screen (void)
 /* Displays the tv screen */
 void tv_display (void)
 {
-  /* Only display if the frame is a valid one. */
-  //if ( (tv_counter % nOptions_SkipFrames) == 0)
-  //{
-	  emu_DrawScreen(VBuf, tv_width, tv_height, tv_width);
-    emu_DrawVsync();
-  //}
-  //tv_counter++;
-  pausing = 1;   // sinaliza fim de quadro real para o mainloop
+  // Auto-deteccao de PAL/NTSC: mede o ebeamy maximo nos primeiros frames.
+  // Se consistentemente > 240 scanlines/quadro -> PAL; senao -> NTSC.
+  // Re-inicializa os parametros de video se o tipo mudar.
+  {
+    static int   s_frameCount  = 0;
+    static int   s_maxY        = 0;
+    static int   s_detected    = 0;
+
+    if (g_resetPalDetect) {
+      s_frameCount = 0;
+      s_maxY       = 0;
+      s_detected   = 0;
+      g_resetPalDetect = 0;
+      g_maxEbeamy  = 0;
+      if (base_opts.tvtype != NTSC) {
+        base_opts.tvtype = NTSC;
+        init_screen();
+        extern int tv_on(void); tv_on();
+      }
+    }
+
+    if (!s_detected) {
+      if (g_maxEbeamy > s_maxY) s_maxY = g_maxEbeamy;
+      g_maxEbeamy = 0;   // reseta para o proximo frame
+      s_frameCount++;
+      if (s_frameCount >= 8) {
+        int newtype = (s_maxY > 240) ? PAL : NTSC;
+        if (newtype != base_opts.tvtype) {
+          printf("[autopal] maxY=%d -> %s\n", s_maxY, newtype==PAL?"PAL":"NTSC");
+          base_opts.tvtype = newtype;
+          init_screen();
+          extern int tv_on(void); tv_on();
+        } else {
+          printf("[autopal] maxY=%d -> %s confirmado\n", s_maxY, newtype==PAL?"PAL":"NTSC");
+        }
+        s_detected = 1;
+        fflush(stdout);
+      }
+    }
+  }
+
+  // Passa frame completo (visivel+overscan) pro blit. O placar do Enduro
+  // e outros jogos fica nas ultimas linhas do overscan (ex: 192-222 no NTSC).
+  // O blitAtari2x centraliza o frame na tela VGA com yoff automatico.
+  emu_DrawScreen(VBuf, tv_width, tv_height + tv_overscan, tv_width);
+  emu_DrawVsync();
+  pausing = 1;
 }
 
 /* Initialise the RIOT (also known as PIA) */
@@ -328,6 +371,7 @@ void
 init_hardware (void)
 {
 //  dbg_message(DBG_NORMAL,"Setting Up hardware\n");
+  g_resetPalDetect = 1;   // forca reset da auto-deteccao PAL/NTSC no proximo tv_display
   init_screen ();
   init_riot ();
   init_tia ();
@@ -624,7 +668,11 @@ do_vblank (BYTE b)
   if (b & 0x02)
     {
       /* Start vertical blank */
-      vbeam_state = VBLANKSTATE;
+      // NAO muda para VBLANKSTATE aqui: o beam continua em DRAWSTATE para que
+      // o tv_raster continue sendo chamado nas linhas do overscan. Jogos como
+      // o Enduro desenham o placar durante o VBLANK (linhas 192-221 no NTSC).
+      // O estado VBLANKSTATE so' e' usado para o VSYNC (inicio do proximo quadro).
+      // vbeam_state = VBLANKSTATE;  // <-- desabilitado
 #ifdef snd
 //	  Tia_process(sounddata, SoundBufSize);
 //      CESound_play_sample(sounddata, nOptions_SoundBufSize);
@@ -681,7 +729,6 @@ do_screen (int clks)
   switch (vbeam_state)
     {
     case VSYNCSTATE:
-    case VBLANKSTATE:
       switch (hbeam_state)
 	{
 	case HSYNCSTATE:
@@ -699,6 +746,40 @@ do_screen (int clks)
 	      /* Insert hsync stuff here */
 	      sbeamx = ebeamx;
 	      hbeam_state = HSYNCSTATE;
+	    }
+	  break;
+	case OVERSTATE:
+	  break;
+	}
+      break;
+    case VBLANKSTATE:
+      // Durante o VBLANK, o jogo pode ainda estar desenhando nas linhas do
+      // overscan (ex: o placar do Enduro nas linhas 192-221). Continuamos
+      // chamando tv_raster para essas linhas em vez de so' avancar o beam.
+      switch (hbeam_state)
+	{
+	case HSYNCSTATE:
+	  ebeamx += clks * 3;
+	  if (ebeamx >= 0)
+	    {
+	      hbeam_state = DRAWSTATE;
+	    }
+	  break;
+	case DRAWSTATE:
+	  ebeamx += clks * 3;
+	  if (ebeamx >= tv_width)
+	    {
+	      ebeamx -= (tv_hsync + tv_width);
+	      sbeamx = ebeamx;
+	      tv_raster (ebeamy);    // renderiza overscan (placar etc)
+	      ebeamy++;
+	      if (ebeamy > g_maxEbeamy) g_maxEbeamy = ebeamy;
+	      hbeam_state = HSYNCSTATE;
+	    }
+	  if (ebeamy >= tv_height + tv_overscan)
+	    {
+	      vbeam_state = OVERSTATE;
+	      ebeamy = 0;
 	    }
 	  break;
 	case OVERSTATE:
@@ -724,6 +805,7 @@ do_screen (int clks)
 	      ebeamx -= (tv_hsync + tv_width);
 	      tv_raster (ebeamy);
 	      ebeamy++;
+	      if (ebeamy > g_maxEbeamy) g_maxEbeamy = ebeamy;  // rastreia maximo
 	      hbeam_state = HSYNCSTATE;
 	    }
 	  if (ebeamy >= tv_height + tv_overscan)
