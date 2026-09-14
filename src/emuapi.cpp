@@ -1595,9 +1595,10 @@ void emu_sndInit() {
 
 void emu_sndPlaySound(int chan, int volume, int freq)
 {
-  if (chan < 6) {
-    audio.sound(chan, freq, volume); 
-  } 
+  // Nao precisa fazer nada: Tia_process() le o estado interno do TIA
+  // (AUDC/AUDF/AUDV) diretamente no ISR do timer. O Update_tia_sound()
+  // no Tiasound.c ja atualizou o estado antes de chamar aqui.
+  (void)chan; (void)volume; (void)freq;
 }
 
 void emu_sndPlayBuzz(int size, int val) {

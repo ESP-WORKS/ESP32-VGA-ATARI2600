@@ -1,5 +1,10 @@
 extern "C" {
-#include "emuapi.h"  
+#include "emuapi.h"
+// Sintetizador TIA real (Tiasound.c): gera samples com todos os 15 modos de
+// AUDC, polinomios Bit4/Bit5/Bit9, etc. Muito mais preciso que o mixer
+// generico de quadrada/ruido que tinhamos antes.
+void Tia_sound_init(unsigned short sample_freq, unsigned short playback_freq);
+void Tia_process(unsigned char *buffer, unsigned short n);
 }
 
 #ifdef HAS_SND
@@ -18,8 +23,8 @@ extern "C" {
 #else
 #include "esp32-hal-timer.h"
 #include "esp32-hal-dac.h"
-static int32_t LastPlayPos=0;
-volatile int32_t NextPlayPos=0;
+volatile int32_t NextPlayPos=0;  // read pointer (ISR)
+static  int32_t WritePos=0;       // write pointer (step(), never touched by ISR)
 volatile uint8_t DacPin;   
 uint16_t LastDacValue;
 hw_timer_t * timer = NULL;
@@ -152,17 +157,18 @@ static void snd_Mixer16(uint16_t *  stream, int len )
 #else
 void IRAM_ATTR onTimer() 
 { 
-	// Sound playing code, plays whatever's in the buffer continuously. Big change from previous versions
-	if(LastDacValue!=Buffer[NextPlayPos])		// Send value to DAC only of changed since last value else no need
-	{
-		// value to DAC has changed, send to actual hardware, else we just leave setting as is as it's not changed
-		LastDacValue=Buffer[NextPlayPos];
-		dacWrite(DacPin,uint8_t((LastDacValue>>8)+127));			// write out the data
-	}
-	Buffer[NextPlayPos]=0;						// Reset this buffer byte back to silence
-	NextPlayPos++;								// Move play pos to next byte in buffer
-	if(NextPlayPos==BufferSize)					// If gone past end of buffer, 
-		NextPlayPos=0;							// set back to beginning
+  // ISR leve: apenas debita o proximo byte do buffer e escreve no DAC.
+  // Tia_process() preenche o buffer numa task separada (audio_fill_task),
+  // desacoplando a sintese da reproducao e evitando contenção com o ISR de video.
+  uint8_t sample = (uint8_t)(Buffer[NextPlayPos] >> 8);
+  if (LastDacValue != sample) {
+    LastDacValue = sample;
+    dacWrite(DacPin, sample);
+  }
+  Buffer[NextPlayPos] = 0x8000;   // silencio (midpoint)
+  NextPlayPos++;
+  if (NextPlayPos >= BufferSize)
+    NextPlayPos = 0;
 }  
 
 #endif
@@ -204,19 +210,21 @@ void AudioPlaySystem::begin(void)
 #else
 	BufferSize = DEFAULT_SAMPLESIZE;
 	Buffer=(volatile uint16_t *)malloc(BufferSize*2);
-	volatile uint16_t * dst=Buffer;
-	for (int i=0; i<BufferSize; i++) {
-	  *dst++=0;          
-	};	
+	for (int i=0; i<BufferSize; i++) Buffer[i] = 0x8000;
+	NextPlayPos = 0;
+	WritePos    = 0;
 
 	DacPin=25;								// set dac pin to use
-	LastDacValue=0;									// set to mid  point
-	dacWrite(DacPin,LastDacValue);					// Set speaker to mid point, stops click at start of first sound
+	LastDacValue=0;
+	dacWrite(DacPin, 0);
+	// Inicializa o sintetizador TIA com clock NTSC (31440 Hz = 3546894/113)
+	// e taxa de amostragem do DAC (22050 Hz).
+	Tia_sound_init(31440, DEFAULT_SAMPLERATE);
 	// Set up interrupt routine
-	timer = timerBegin(0, 80, true);        // use timer 0, pre-scaler is 80 (divide by 8000), count up
-	timerAttachInterrupt(timer, &onTimer, true); // P3= edge triggered
-	timerAlarmWrite(timer, 45, true);       // will trigger 22050 times per sec (443 per 20 ms=22050/50)
-	timerAlarmEnable(timer);   	  
+	timer = timerBegin(0, 80, true);
+	timerAttachInterrupt(timer, &onTimer, true);
+	timerAlarmWrite(timer, 45, true);       // 22050 Hz
+	timerAlarmEnable(timer);
 #endif  
 }
 
@@ -261,12 +269,10 @@ void AudioPlaySystem::step(void)
 {
 #ifdef USE_I2S
   int left=DEFAULT_SAMPLERATE/50;
-
   while(left) {
     int n=DEFAULT_SAMPLESIZE;
     if (n>left) n=left;
     snd_Mixer16((uint16_t*)Buffer, n);
-    //16 bit mono -> 16 bit r+l
     for (int i=n-1; i>=0; i--) {
       Buffer[i*2+1]=Buffer[i]+32767;
       Buffer[i*2]=Buffer[i]+32767;
@@ -275,23 +281,32 @@ void AudioPlaySystem::step(void)
     left-=n;
   }
 #else
+  if (!playing) return;
 
-  int32_t CurPos=NextPlayPos;
-  int32_t samples;
-  if (CurPos > LastPlayPos) {
-  	snd_Mixer16((uint16_t *)&Buffer[LastPlayPos], CurPos-LastPlayPos);
-    samples = CurPos-LastPlayPos;
+  // Calcula espaco livre entre WritePos (escrita) e NextPlayPos (leitura do ISR).
+  // Nunca ultrapassamos o ISR: deixamos 1 slot de margem.
+  int32_t read  = NextPlayPos;            // snapshot atomico (32-bit read)
+  int32_t write = WritePos;
+  int32_t free_space;
+  if (write < read)
+    free_space = read - write - 1;
+  else
+    free_space = BufferSize - write + read - 1;
+
+  if (free_space <= 0) return;
+
+  int n = free_space;
+  if (n > DEFAULT_SAMPLESIZE) n = DEFAULT_SAMPLESIZE;
+
+  static unsigned char tmp[DEFAULT_SAMPLESIZE];
+  Tia_process(tmp, (uint16_t)n);
+
+  for (int i = 0; i < n; i++) {
+    // Sample TIA: 0-255 unsigned. DAC espera 0-255 (dacWrite).
+    // Guardamos como uint16 com o byte util no byte alto (ISR faz >> 8).
+    Buffer[(write + i) % BufferSize] = ((uint16_t)tmp[i]) << 8;
   }
-  else {
-  	snd_Mixer16((uint16_t *)&Buffer[LastPlayPos], BufferSize-LastPlayPos);
-  	snd_Mixer16((uint16_t *)&Buffer[0], CurPos);
-    samples = BufferSize-LastPlayPos;
-    samples += CurPos;
-  }
-  LastPlayPos = CurPos;
-  //printf("sam %d\n",bytes);
-#endif    
+  WritePos = (write + n) % BufferSize;
+#endif
 }
 #endif
-
-
