@@ -91,7 +91,7 @@ static inline uint16_t evPop(void) {
 // Existe porque Q/A/O/P sao letras -- sem o toggle, digitar no BASIC viraria
 // comando de joystick.
 // 0 = OFF, 1 = teclado mapeia porta 1, 2 = teclado mapeia porta 2
-static int s_joyMode = 0;
+static int s_joyMode = 2;  // Atari 2600: sempre porta 2 (J2). F12 alterna OFF<->J2.
 
 // Por que dois acumuladores:
 //   - O jogo quer NIVEL: seta segurada = direcao mantida. Isso e' s_mask.
@@ -241,21 +241,18 @@ static void ps2kbd_poll(void)
 //                  (int)vk, (int)down, (int)kb->virtualKeyToASCII(vk));
 #endif
 
-    // F12 cicla o modo joystick: OFF -> J1 -> J2 -> OFF.
-    // J1 = Q/A/O/P/SPACE viram joystick na porta 1 do C64.
-    // J2 = idem, porta 2. OFF = teclado normal.
+    // F12 alterna o joystick por teclado: J2 (ativo por padrao) <-> OFF.
+    // J1 era especifico do C64 e foi removido.
     if (vk == fabgl::VK_F12) {
       if (down) {
-        s_joyMode = (s_joyMode + 1) % 3;
-        // Libera qualquer direcao que tenha ficado presa quando o modo mudou.
+        s_joyMode = (s_joyMode == 2) ? 0 : 2;
         s_mask &= ~(M_JOY2_UP | M_JOY2_DOWN | M_JOY2_LEFT |
                     M_JOY2_RIGHT | M_JOY2_BTN |
                     M_JOY1_UP | M_JOY1_DOWN | M_JOY1_LEFT |
                     M_JOY1_RIGHT | M_JOY1_BTN);
         s_navLevel = 0;
         s_navNextMs = 0;
-        const char *label[] = {"OFF", "J1 (porta 1)", "J2 (porta 2)"};
-        Serial.printf("[joy] modo joystick %s (Q/A/O/P/SPACE)\n", label[s_joyMode]);
+        Serial.printf("[joy] joystick teclado %s\n", s_joyMode ? "J2 (Q/A/O/P/SPACE)" : "OFF");
       }
       continue;
     }
@@ -265,8 +262,6 @@ static void ps2kbd_poll(void)
     // direcao e letra ao mesmo tempo.
     if (s_joyMode != 0) {
       uint16_t jm = joyMaskOf(vk);
-      // Em J1 mode, desloca para M_JOY1_* (byte alto).
-      if (s_joyMode == 1 && jm) jm <<= 8;
       if (jm) {
         if (down) s_mask |= jm;
         else      s_mask &= ~jm;

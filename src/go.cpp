@@ -258,11 +258,7 @@ void emu_loop(void)
 
 #ifdef HAS_PS2KBD
     // Indicador de modo joystick (F12) no canto inferior direito.
-    int jm = ps2kbd_get_joy_mode();
-    if (jm == 1)
-      video.drawTextNoDma(304, 232, "J1", RGBVAL16(0x00,0xff,0x00), RGBVAL16(0,0,0), false);
-    else if (jm == 2)
-      video.drawTextNoDma(304, 232, "J2", RGBVAL16(0xff,0xff,0x00), RGBVAL16(0,0,0), false);
+    // Indicador de modo joystick removido (J2 e' o padrao, nao precisa mostrar).
 #endif
 
     // ---- TELEMETRIA (1x por segundo) ---------------------------------------
@@ -330,8 +326,8 @@ void setup()
   Serial.begin(115200);
   delay(200);
   Serial.println("\n=== MCUME espvcs (Atari 2600) - TTGO VGA32 ===");
-  Serial.println("PS/2:  F9=menu  F10=recarrega  F11=RESET  F1=SELECT  F2=COLOR/BW  F3=frameskip  F12=joystick");
-  Serial.println("Joystick: gamepad da T-Display, ou Q/A/O/P/SPACE no PS/2 (F12).");
+  Serial.println("PS/2:  F9=menu  F10=recarrega  F11=RESET  F1=SELECT  F2=COLOR/BW  F3=frameskip  F12=joystick(on/off)");
+  Serial.println("Joystick: Q=cima A=baixo O=dir P=esq SPACE=fire (J2 ativo por padrao)");
 
   // Integracao com o bootloader (fg1998/esp32-bootloader): apagar o otadata
   // faz o ESP32 voltar para a particao factory no proximo boot em vez de
