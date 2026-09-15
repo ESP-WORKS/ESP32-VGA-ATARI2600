@@ -46,6 +46,14 @@ extern "C" {
 // romspath vira <SD_MOUNT_POINT>/<ROMSDIR>, ex.: /sdcard/2600.
 #define SD_MOUNT_POINT "/sdcard"
 
+// Versao do firmware -- edite aqui. Aparece no rodape do menu.
+#define EMU_VERSION "0.0.4"
+
+// Info de hardware detectado (preenchido em emu_init, exibido no rodape do menu).
+static int g_hw_miso = -1;   // GPIO do MISO do SD que funcionou (2 ou 35)
+static int g_hw_dat  = 32;   // GPIO DAT do teclado (bootl.rc ou default)
+static int g_hw_clk  = 33;   // GPIO CLK do teclado (bootl.rc ou default)
+
 #ifdef HAS_I2CKBD
 #ifdef USE_WIRE
 #include "Wire.h"
@@ -560,14 +568,10 @@ static void menu_drawHeader(void)
 
 static void menu_drawFooter(void)
 {
-  int page  = (topFile / MAX_MENULINES) + 1;
-  int pages = (nbFiles + MAX_MENULINES - 1) / MAX_MENULINES;
-  if (pages < 1) pages = 1;
   char body[64], footer[40];
-  snprintf(body, sizeof(body), "ENTER=abrir <>=pag F1=SWAP(%d) %d/%d",
-           emu_SwapJoysticks(1), page, pages);
-  // Largura fixa: sem isto, ao passar de "1/10" para "1/9" sobrava um digito
-  // do desenho anterior na tela.
+  snprintf(body, sizeof(body), "Versao %s MISO=%d DAT=%d CLK=%d",
+           EMU_VERSION, g_hw_miso, g_hw_dat, g_hw_clk);
+  // Largura fixa: sem isto, sobra lixo do desenho anterior na tela.
   snprintf(footer, sizeof(footer), "%-38.38s", body);
   video.drawTextNoDma(MENU_FILE_XOFFSET, MENU_FOOTER_YOFFSET, footer,
                       RGBVAL16(0x00,0xff,0xff), RGBVAL16(0x00,0x00,0x00), false);
@@ -732,9 +736,8 @@ void emu_init(void)
 
   esp_err_t ret = 0;
 
-#ifdef HAS_PS2KBD
-  ps2kbd_begin();
-#endif
+  // ps2kbd_begin sera' chamado DEPOIS da montagem do SD, para que o
+  // bootl.rc possa sobrescrever os pinos CLK/DAT do teclado.
 
   printf("mounting sd...\n");
 
@@ -793,6 +796,7 @@ void emu_init(void)
     }
 
     if (ret == ESP_OK) {
+      g_hw_miso = misoTry[m];   // guarda o MISO que funcionou (para o rodape)
       printf("SD montado a %d kHz (MISO=%d)\n", (int)SD_FREQ_KHZ, misoTry[m]);
     } else {
       // Este MISO nao serviu. O esp_vfs_fat_sdspi_mount ja' desfez o
@@ -809,8 +813,36 @@ void emu_init(void)
 
   strcpy(romspath,SD_MOUNT_POINT "/");
   strcat(romspath,ROMSDIR);
-  strcpy(romsbase,romspath);   // limite do ".." -- nao sobe acima da pasta de ROMs
+  strcpy(romsbase,romspath);
   printf("dir is : %s\n",romspath);
+
+  // Le o bootl.rc do SD (gerado pelo bootloader) para obter os pinos do
+  // teclado PS/2. Formato: "kbddat=32\nkbdclk=33\nmagicb=36\n"
+  // Se o arquivo nao existir, usa os defaults (CLK=33, DAT=32).
+  int kbd_clk = -1, kbd_dat = -1;
+  {
+    FILE *f = fopen(SD_MOUNT_POINT "/bootl.rc", "r");
+    if (f) {
+      char line[32];
+      while (fgets(line, sizeof(line), f)) {
+        int val;
+        if (sscanf(line, "kbdclk=%d", &val) == 1) kbd_clk = val;
+        if (sscanf(line, "kbddat=%d", &val) == 1) kbd_dat = val;
+      }
+      fclose(f);
+      printf("[bootl.rc] CLK=%d DAT=%d\n", kbd_clk, kbd_dat);
+    } else {
+      printf("[bootl.rc] nao encontrado, usando defaults (CLK=33 DAT=32)\n");
+    }
+  }
+
+  // Guarda os pinos efetivos do teclado para o rodape (default se bootl.rc ausente).
+  g_hw_clk = (kbd_clk < 0) ? 33 : kbd_clk;
+  g_hw_dat = (kbd_dat < 0) ? 32 : kbd_dat;
+
+#ifdef HAS_PS2KBD
+  ps2kbd_begin(kbd_clk, kbd_dat);
+#endif
 
   nbFiles = menu_rescan();
   menu_setSelection();

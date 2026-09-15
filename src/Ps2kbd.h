@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-void ps2kbd_begin(void);
+void ps2kbd_begin(int clk_pin, int dat_pin);  // -1 = usa default (CLK=33, DAT=32)
 
 // Devolve o proximo caractere ASCII pressionado, ou 0 se nao houver.
 // Consumido por emu_ReadI2CKeyboard(), que o core do C64 ja usa.

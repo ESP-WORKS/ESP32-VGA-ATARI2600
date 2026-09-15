@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <fabgl.h>
 #include "ps2kbd.h"
+#include "devdrivers/keyboard.h"
 
 // 1 = imprime cada tecla recebida no serial. Use para confirmar se o teclado
 // esta chegando antes de procurar problema no mapeamento.
@@ -370,15 +371,31 @@ static void ps2kbd_poll(void)
   }
 }
 
-void ps2kbd_begin(void)
+void ps2kbd_begin(int clk_pin, int dat_pin)
 {
   if (kbdReady) return;
-  // CreateVirtualKeysQueue, nao GenerateVirtualKeys: e' este modo que faz a
-  // FabGL manter a FILA de teclas. Com GenerateVirtualKeys ela converte o
-  // scancode mas nao enfileira nada, entao virtualKeyAvailable() fica sempre
-  // falso e getNextVirtualKey() nunca tem o que devolver -- exatamente o
-  // sintoma de "teclado detectado mas nenhuma tecla chega".
-  ps2.begin(PS2Preset::KeyboardPort0, KbdMode::CreateVirtualKeysQueue);
+  // Pinos default do KeyboardPort0 na FabGL (TTGO VGA32 / ROBGO):
+  //   CLK = GPIO33, DAT = GPIO32
+  // Se o bootl.rc especificar outros pinos, usamos GPIO direto.
+  if (clk_pin < 0) clk_pin = 33;
+  if (dat_pin < 0) dat_pin = 32;
+
+  if (clk_pin == 33 && dat_pin == 32) {
+    // Preset padrao -- FabGL configura os pinos automaticamente.
+    ps2.begin(PS2Preset::KeyboardPort0, KbdMode::CreateVirtualKeysQueue);
+  } else {
+    // Pinos personalizados lidos do bootl.rc.
+   //ps2.begin((gpio_num_t)clk_pin, (gpio_num_t)dat_pin, GPIO_UNUSED, GPIO_UNUSED);
+     ps2.begin((gpio_num_t)clk_pin, (gpio_num_t)dat_pin);
+
+    ps2.setKeyboard(new fabgl::Keyboard);
+
+    ps2.keyboard()->begin(
+        (gpio_num_t)clk_pin, (gpio_num_t)dat_pin,
+        true,
+        true
+    );
+  }
   fabgl::Keyboard *kb = ps2.keyboard();
   if (kb) {
     // Layout US DE PROPOSITO, mesmo com teclado fisico ABNT2. O C64 real e'

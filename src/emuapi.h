@@ -40,7 +40,7 @@
 
 
 // Title:     <                                        >
-#define TITLE "         Atari 2600 (espvcs) VGA32       "
+#define TITLE "    Atari 2600 (espvcs) ported by FG1998"
 #define ROMSDIR "2600"
 
 // Frequencia do SPI do cartao SD. 4000 costuma estabilizar em soquete de
