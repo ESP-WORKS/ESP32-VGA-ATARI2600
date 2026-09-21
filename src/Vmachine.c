@@ -162,7 +162,11 @@ init_screen (void)
       tv_width = 160;
       tv_height = 192;
       tv_vblank = 40;
-      tv_overscan = 30;
+      // Era 30. Alguns jogos Activision (Enduro em especial) desenham o placar
+      // ate' por volta da linha 232-234, o que passava dos 222 (192+30) que
+      // tinhamos e cortava as ultimas linhas do placar. 40 cobre com folga sem
+      // colar no limite pratico do blit (240 no VGA). Max seguro seria 48.
+      tv_overscan = 40;
       tv_frame = 262;
       tv_hertz = 60;
     break;

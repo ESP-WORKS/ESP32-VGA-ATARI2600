@@ -780,7 +780,7 @@ tv_raster (int line)
 {
   int64_t _t0 = esp_timer_get_time();
   // Frameskip com 3 modos (g_frameSkipMode, alternado pelo F3):
-  //  - overscan (line > theight): so' update_registers, sempre.
+  //  - alem de tv_height+tv_overscan: so' update_registers, sempre.
   //  - quadro pulado (g_fskip) numa linha visivel:
   //      modo 2 (rapido): so' update_registers -- pula render E colisao (mais
   //        fps, mas quebra jogos que dependem de colisao por quadro).
@@ -788,11 +788,11 @@ tv_raster (int line)
   //        lookup de cor + escrita no VBuf (Pitfall & cia continuam corretos).
   //  - quadro normal: colisao + render.
   //
-  // Antes o teste era "line >= theight" e as linhas de overscan nao eram
-  // desenhadas -- ficavam com o byte 128 do memset inicial do VBuf
-  // (Display.c), que na paleta 2600 e' azul, criando faixa azul embaixo em
-  // todos os jogos. Agora libera ate' theight+tv_overscan pra que draw_vector_q
-  // pinte COLUBK (ou placar, ex: Enduro) nessas linhas.
+  // NOTA: uma tentativa anterior separava um ramo de overscan (tv_height ate'
+  // tv_height+tv_overscan) que chamava draw_playfield/draw_ball mas pulava
+  // pl_draw/draw_missile, consumindo pl_change em bulk. Isso corrigia o
+  // carrinho deslocado do Enduro MAS travava no reset do jogo. Revertido para
+  // este path simples ate' entender melhor o bug do reset.
   if (line >= tv_height + tv_overscan)
   {
       update_registers ();
