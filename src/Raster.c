@@ -787,7 +787,13 @@ tv_raster (int line)
   //      modo 1 (seguro): monta o colvect e detecta colisao, pula so' o
   //        lookup de cor + escrita no VBuf (Pitfall & cia continuam corretos).
   //  - quadro normal: colisao + render.
-  if (line >= theight)    // >= evita escrita alem do VBuf[0..theight-1]
+  //
+  // Antes o teste era "line >= theight" e as linhas de overscan nao eram
+  // desenhadas -- ficavam com o byte 128 do memset inicial do VBuf
+  // (Display.c), que na paleta 2600 e' azul, criando faixa azul embaixo em
+  // todos os jogos. Agora libera ate' theight+tv_overscan pra que draw_vector_q
+  // pinte COLUBK (ou placar, ex: Enduro) nessas linhas.
+  if (line >= tv_height + tv_overscan)
   {
       update_registers ();
   }

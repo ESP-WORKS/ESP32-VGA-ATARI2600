@@ -83,7 +83,7 @@ int tv_on()
    /* Get the basic colors */
 	unsigned long m;
 
-  if (VBuf == 0) VBuf = (uint8 *)emu_Malloc((160)*(228+8)+8);  // 228 para PAL + margem
+  if (VBuf == 0) VBuf = (uint8 *)emu_Malloc((160)*(228+36+8)+8);  // 228 PAL + 36 overscan + margem
 
 	create_window();
 
@@ -96,6 +96,8 @@ int tv_on()
 		m&=0xFFFFFFF8;
 		VBuf=(uint8*)m;
 	} 
-	memset(VBuf,128,160*(228+8));
+	// Valor 0 (preto na paleta 2600) em vez de 128 (que era azul e criava faixa
+	// azul embaixo quando linhas de overscan nao eram desenhadas pelo raster).
+	memset(VBuf,0,160*(228+36+8));
 	return(1);
 }

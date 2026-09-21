@@ -377,6 +377,7 @@ void toggleMenu(bool on) {
     // ele ja' esta carregado (emu_init), entao aqui nao ha leitura dupla.
     if (!catalogLoaded) { menu_rescan(); menu_setSelection(); }
   } else {
+    video.fillScreenNoDma(RGBVAL16(0x00,0x00,0x00));
     menuOn = false;    
   }
 }
