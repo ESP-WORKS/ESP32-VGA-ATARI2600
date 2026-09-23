@@ -65,6 +65,61 @@ void vga_show_disk(const char *msg, int ms)
 }
 
 
+// Indicador de porta do joystick ("J1"/"J2") no canto inferior DIREITO,
+// persistente (sem deadline). Diferente do DISK, este e' desenhado direto
+// no framebuffer via draw_port_indicator() apos o blit do 2600, porque o
+// path do 2600 nao passa pelo flushLine (esse e' do C64).
+#define PORT_MAX_LEN 4
+static char s_portMsg[PORT_MAX_LEN + 1] = {0};
+
+// Mesma linha vertical do DISK, mas alinhado a direita com margem de 4px.
+#define PORT_TEXT_Y (VGA_YRES - 12)
+
+extern "C" void vga_show_port(const char *msg)
+{
+  if (!msg) { s_portMsg[0] = 0; return; }
+  int n = 0;
+  while (msg[n] && n < PORT_MAX_LEN) { s_portMsg[n] = msg[n]; n++; }
+  s_portMsg[n] = 0;
+}
+
+// Desenha o indicador de porta direto no _fb (nao no scratch). Chamado
+// apos blitAtari2x pra sobreviver ao redraw do quadro. Usa font8x8 e
+// escreve com o swizzle x^2, igual o overlay do DISK.
+static void draw_port_indicator(void)
+{
+  if (!s_portMsg[0] || !_fb) return;
+
+  int msgLen = 0;
+  while (s_portMsg[msgLen] && msgLen < PORT_MAX_LEN) msgLen++;
+  if (msgLen == 0) return;
+
+  int px = VGA_XRES - 4 - msgLen * 8;   // right-aligned com 4px de margem
+  if (px < 0) return;
+
+  uint8_t fg = _rawLUT[ vga_rgb565to6(RGBVAL16(0xFF, 0xFF, 0x00)) & 0x3F ];
+  uint8_t bg = _rawLUT[ vga_rgb565to6(RGBVAL16(0x00, 0x00, 0x00)) & 0x3F ];
+
+  for (int row = 0; row < 8; row++) {
+    int y = PORT_TEXT_Y + row;
+    if ((unsigned)y >= VGA_YRES) break;
+    uint8_t *fb_line = _fb + y * VGA_XRES;
+    int lx = px;
+    for (int i = 0; i < msgLen; i++) {
+      unsigned char ch = (unsigned char)s_portMsg[i];
+      if (ch >= 128) ch = '?';
+      unsigned char bits = font8x8[ch][row];
+      for (int col = 0; col < 8; col++) {
+        int x = lx + col;
+        if ((unsigned)x < VGA_XRES)
+          fb_line[(x ^ 2)] = (bits & (1 << col)) ? fg : bg;
+      }
+      lx += 8;
+    }
+  }
+}
+
+
 static void IRAM_ATTR drawScanline(void *arg, uint8_t *dest, int scanLine)
 {
   memcpy(dest, _fb + scanLine * VGA_XRES, VGA_XRES);
@@ -353,6 +408,11 @@ void VGA_Video::blitAtari2x(const uint8_t *buf, int w, int h, int stride,
       fb32[k] = b | (b << 8) | (a << 16) | (a << 24);
     }
   }
+
+  // Overlay do indicador de porta ("J1"/"J2") por cima do quadro do jogo,
+  // no canto inferior direito. Precisa ser redesenhado a cada blit porque
+  // o loop acima passa por cima da area do texto.
+  draw_port_indicator();
 }
 
 void VGA_Video::writeScreen(int width, int height, int stride,

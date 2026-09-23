@@ -12,6 +12,10 @@ extern "C" {
 
 #include "video_vga.h"
 #include "ps2kbd.h"
+
+// Overlay do indicador de porta do joystick (J1/J2), definido em video_vga.cpp.
+// Nao esta' em video_vga.h porque este e' o unico consumidor.
+extern "C" void vga_show_port(const char *msg);
 //#include "logo.h"
 
 #ifdef HAS_TDISPLAY_LINK
@@ -377,7 +381,6 @@ void toggleMenu(bool on) {
     // ele ja' esta carregado (emu_init), entao aqui nao ha leitura dupla.
     if (!catalogLoaded) { menu_rescan(); menu_setSelection(); }
   } else {
-    video.fillScreenNoDma(RGBVAL16(0x00,0x00,0x00));
     menuOn = false;    
   }
 }
@@ -658,6 +661,10 @@ int handleMenu(uint16_t bClick)
   // (buffer separado da arena), entao a RAM dos nomes volta ao emulador antes
   // do jogo carregar. O menu relê quando reabrir (toggleMenu).
   if (action == ACTION_RUN) {
+    // Todo jogo abre em J1. Se o usuario tinha alternado pra J2 no jogo
+    // anterior, volta ao default automaticamente.
+    joySwapped = true;
+    vga_show_port("J1");
     menu_freeCatalog();
     return action;
   }
@@ -858,6 +865,9 @@ void emu_init(void)
 
 
   emu_InitJoysticks();
+
+  // Indicador de porta do joystick aparece desde o boot. Default J1.
+  vga_show_port(joySwapped ? "J1" : "J2");
 
   // Calibracao de toque removida daqui: a VGA32 nao tem touchscreen
   // (video.isTouching() e' um stub que sempre devolve false), entao
@@ -1061,7 +1071,10 @@ int emu_LoadFileSeek(char * filename, char * buf, int size, int seek)
 }
 
 static int keypadval=0; 
-static bool joySwapped = false;
+// Default TRUE = joystick mapeado em P1 (J1). A maioria dos jogos do 2600
+// e' single-player e usa a porta esquerda (P1). Fernando pediu que qualquer
+// jogo abra ja' em J1 -- o SWAP so' inverte se o usuario mandar.
+static bool joySwapped = true;
 static uint16_t bLastState;
 
 // ----- Ritmo da navegacao do menu ----------------------------------------
@@ -1160,6 +1173,7 @@ int emu_SwapJoysticks(int statusOnly) {
     else {
       joySwapped = true;
     }
+    vga_show_port(joySwapped ? "J1" : "J2");
   }
   return(joySwapped?1:0);
 }

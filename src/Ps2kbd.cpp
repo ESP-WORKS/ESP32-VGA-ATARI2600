@@ -3,6 +3,11 @@
 #include "ps2kbd.h"
 #include "devdrivers/keyboard.h"
 
+// Forward declarations pra evitar puxar emuapi.h/keyboard_osd.h inteiros
+// so' pra chamar duas funcoes. Ambas sao definidas em emuapi.cpp.
+extern bool menuActive(void);
+extern int  emu_SwapJoysticks(int statusOnly);
+
 // 1 = imprime cada tecla recebida no serial. Use para confirmar se o teclado
 // esta chegando antes de procurar problema no mapeamento.
 #define PS2_TRACE 1   // TEMPORARIO: veja no serial o vk/ascii de cada tecla; volte a 0 depois
@@ -85,14 +90,15 @@ static inline uint16_t evPop(void) {
   return m;
 }
 
-// Modo joystick, alternado por F2. Ligado: Q/A/O/P/SPACE viram joystick
-// (layout Sinclair classico) e sao SUPRIMIDAS do caminho de teclado --
-// nao entram em s_held nem na fila ASCII, senao no jogo elas mandariam os
-// dois sinais ao mesmo tempo. Desligado: as mesmas teclas digitam normal.
-// Existe porque Q/A/O/P sao letras -- sem o toggle, digitar no BASIC viraria
-// comando de joystick.
-// 0 = OFF, 1 = teclado mapeia porta 1, 2 = teclado mapeia porta 2
-static int s_joyMode = 2;  // Atari 2600: sempre porta 2 (J2). F12 alterna OFF<->J2.
+// Modo joystick, alternado por F12. Ciclo: 1 <-> 2.
+//   1 = Setas + Espaco: as 4 setas mandam direcao, SPACE = tiro. As setas
+//       tambem seguem alimentando s_events pra navegacao no menu.
+//   2 = QAOP + Espaco (layout Sinclair classico): Q/A/O/P + SPACE viram
+//       joystick e sao SUPRIMIDAS do caminho de teclado -- senao no jogo
+//       elas mandariam letra + direcao ao mesmo tempo. Sem o toggle, digitar
+//       Q/A/O/P no BASIC viraria comando de joystick.
+// Default 2 pra Atari 2600 (jogos jogaveis de imediato com QAOP no PS/2).
+static int s_joyMode = 2;
 
 // Por que dois acumuladores:
 //   - O jogo quer NIVEL: seta segurada = direcao mantida. Isso e' s_mask.
@@ -149,7 +155,11 @@ static uint16_t maskOf(fabgl::VirtualKey vk) {
     //   F9  = abre o menu de ROMs           (M_KEY_MENU,  tratado em go.cpp)
     //   F10 = reseta o C64 (volta ao BASIC) (M_KEY_RESET, tratado em go.cpp)
     //   F11 = macro LOAD"" + RUN            (M_KEY_USER1, tratado em c64_Input)
-    //   F12 = liga/desliga o modo joystick  (tratado direto no poll abaixo)
+    //   F12 = alterna joystick por teclado: QAOP+SPACE <-> Setas+SPACE
+    //         (tratado direto no poll abaixo)
+    //
+    // Atari 2600: alem dos switches em F1..F3 (SELECT/COLOR-B&W/frameskip),
+    //   F5  = alterna J1/J2 durante o jogo (tratado direto no poll abaixo)
     //
     // A macro do F11: o c64_Input() digita LOAD"" + Enter, espera 2 s e
     // digita RUN. O patchLOAD() ve o nome vazio (RAM[0xB7]==0) e usa o
@@ -159,32 +169,47 @@ static uint16_t maskOf(fabgl::VirtualKey vk) {
     // entao F1/F2 nao colidem com nada, ao contrario do C64). Estes bits
     // (USER1/2/3) fluem por NIVEL ate' o Keyboard.c::keycons(), que os le a
     // cada quadro -- go.cpp NAO os consome.
-    case fabgl::VK_F1:     return M_KEY_USER2;  // SELECT
-    case fabgl::VK_F2:     return M_KEY_USER3;  // COLOR / B&W
+    case fabgl::VK_F1:     return M_KEY_USER2;  // SELECT (momentaneo)
+    case fabgl::VK_F2:     return M_KEY_USER3;  // COLOR/B&W (toggle -- vira latch no poll abaixo)
     case fabgl::VK_F3:     return M_KEY_USER4;  // alterna frameskip
     case fabgl::VK_F9:     return M_KEY_MENU;   // menu de ROMs
     case fabgl::VK_F10:    return M_KEY_RESET;  // recarrega o jogo atual
-    case fabgl::VK_F11:    return M_KEY_USER1;  // RESET do console (inicia o jogo)
+    case fabgl::VK_F11:    return M_KEY_USER1;  // RESET do console (momentaneo -- inicia o jogo)
     case fabgl::VK_KP_ENTER:return M_JOY2_BTN;
     default:               return 0;
   }
 }
 
-// Teclas que viram JOYSTICK quando s_joyMode esta ligado. Layout Sinclair:
-//   Q = cima     A = baixo     O = esquerda     P = direita     SPACE = fire
+// Teclas que viram JOYSTICK quando s_joyMode esta ligado. Layout depende do
+// modo:
+//   modo 1 = Setas do PC + SPACE (mais intuitivo)
+//   modo 2 = QAOP + SPACE (layout Sinclair classico do C64)
 // Separada de maskOf() de proposito: maskOf() serve a navegacao do menu
 // (s_events), esta serve ao jogo (s_mask, por nivel). O bit final e' o
 // mesmo (M_JOY2_*), e cai em cia1PORTA/PORTB via emu_ReadKeys() -- porta 1
 // ou 2 conforme o SWAP (F1).
-static uint16_t joyMaskOf(fabgl::VirtualKey vk) {
-  switch (vk) {
-    case fabgl::VK_q: case fabgl::VK_Q:  return M_JOY2_UP;
-    case fabgl::VK_a: case fabgl::VK_A:  return M_JOY2_DOWN;
-    case fabgl::VK_o: case fabgl::VK_O:  return M_JOY2_RIGHT;
-    case fabgl::VK_p: case fabgl::VK_P:  return M_JOY2_LEFT;
-    case fabgl::VK_SPACE:                return M_JOY2_BTN;
-    default: return 0;
+static uint16_t joyMaskOf(fabgl::VirtualKey vk, int mode) {
+  if (mode == 1) {
+    switch (vk) {
+      case fabgl::VK_UP:     return M_JOY2_UP;
+      case fabgl::VK_DOWN:   return M_JOY2_DOWN;
+      case fabgl::VK_LEFT:   return M_JOY2_LEFT;
+      case fabgl::VK_RIGHT:  return M_JOY2_RIGHT;
+      case fabgl::VK_SPACE:  return M_JOY2_BTN;
+      default: return 0;
+    }
   }
+  if (mode == 2) {
+    switch (vk) {
+      case fabgl::VK_q: case fabgl::VK_Q:  return M_JOY2_UP;
+      case fabgl::VK_a: case fabgl::VK_A:  return M_JOY2_DOWN;
+      case fabgl::VK_o: case fabgl::VK_O:  return M_JOY2_RIGHT;
+      case fabgl::VK_p: case fabgl::VK_P:  return M_JOY2_LEFT;
+      case fabgl::VK_SPACE:                return M_JOY2_BTN;
+      default: return 0;
+    }
+  }
+  return 0;
 }
 
 // Drena a fila da FabGL. Chamada pelos dois getters, entao o teclado responde
@@ -242,31 +267,59 @@ static void ps2kbd_poll(void)
 //                  (int)vk, (int)down, (int)kb->virtualKeyToASCII(vk));
 #endif
 
-    // F12 alterna o joystick por teclado: J2 (ativo por padrao) <-> OFF.
-    // J1 era especifico do C64 e foi removido.
+    // F12 alterna o layout do joystick por teclado: QAOP+SPACE <-> Setas+SPACE.
     if (vk == fabgl::VK_F12) {
       if (down) {
-        s_joyMode = (s_joyMode == 2) ? 0 : 2;
+        s_joyMode = (s_joyMode == 2) ? 1 : 2;
         s_mask &= ~(M_JOY2_UP | M_JOY2_DOWN | M_JOY2_LEFT |
                     M_JOY2_RIGHT | M_JOY2_BTN |
                     M_JOY1_UP | M_JOY1_DOWN | M_JOY1_LEFT |
                     M_JOY1_RIGHT | M_JOY1_BTN);
         s_navLevel = 0;
         s_navNextMs = 0;
-        Serial.printf("[joy] joystick teclado %s\n", s_joyMode ? "J2 (Q/A/O/P/SPACE)" : "OFF");
+        Serial.printf("[joy] joystick teclado: %s\n",
+                      (s_joyMode == 2) ? "QAOP + SPACE (Sinclair)" : "Setas + SPACE");
       }
       continue;
     }
 
-    // No modo joystick, Q/A/O/P/SPACE alimentam s_mask como joystick e
-    // NAO seguem para o caminho de teclado -- senao no jogo mandariam
-    // direcao e letra ao mesmo tempo.
-    if (s_joyMode != 0) {
-      uint16_t jm = joyMaskOf(vk);
+    // F2 = switch COLOR/B&W do 2600. NO CONSOLE REAL isto e' uma CHAVE
+    // MECANICA: voce flipa e ela fica. Por isso o F2 aqui NAO segue o
+    // caminho de nivel (down = liga, up = desliga) do F1/F11. Em vez
+    // disso, cada pressionar (rising edge) alterna o bit M_KEY_USER3 em
+    // s_mask, que o Keyboard.c::keycons() le como estado atual do switch.
+    if (vk == fabgl::VK_F2) {
+      if (down) {
+        s_mask ^= M_KEY_USER3;
+        Serial.printf("[switch] COLOR/B&W: %s\n",
+                      (s_mask & M_KEY_USER3) ? "B&W" : "COLOR");
+      }
+      continue;
+    }
+
+    // F5 = alterna J1/J2 durante o jogo. Nao mapeada pra nada no 2600, entao
+    // pode ser dedicada. Dentro do menu, o handleMenu() ja alterna via F11
+    // (MASK_KEY_USER1); aqui a gente cobre o caso de trocar de porta sem
+    // precisar abrir o menu. Rising edge apenas -- segurar nao repete.
+    if (vk == fabgl::VK_F5) {
+      if (down && !menuActive()) {
+        emu_SwapJoysticks(0);   // atualiza indicador tambem
+      }
+      continue;
+    }
+
+    // Joystick por teclado: as teclas mapeadas viram s_mask (nivel do
+    // joystick). No modo 2 (QAOP) sao SUPRIMIDAS do caminho de teclado --
+    // senao no jogo mandariam letra + direcao ao mesmo tempo. No modo 1
+    // (setas) NAO suprime: as setas ainda precisam alimentar s_events pra
+    // navegar o menu (o poll segue pro maskOf() abaixo).
+    {
+      uint16_t jm = joyMaskOf(vk, s_joyMode);
       if (jm) {
         if (down) s_mask |= jm;
         else      s_mask &= ~jm;
-        continue;
+        if (s_joyMode == 2) continue;  // QAOP: suprime pro teclado
+        // Modo 1: nao continue -- cai no maskOf() pra navegacao do menu.
       }
     }
 
