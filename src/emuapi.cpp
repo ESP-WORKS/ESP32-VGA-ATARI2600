@@ -57,7 +57,7 @@ static bool joySwapped = true;
 #define SD_MOUNT_POINT "/sdcard"
 
 // Versao do firmware -- edite aqui. Aparece no rodape do menu.
-#define EMU_VERSION "0.0.4"
+#define EMU_VERSION "5"
 
 // Info de hardware detectado (preenchido em emu_init, exibido no rodape do menu).
 static int g_hw_miso = -1;   // GPIO do MISO do SD que funcionou (2 ou 35)
@@ -420,15 +420,15 @@ void drawHelp(void)
   // Corpo alinhado em x=40 (5 chars de margem esquerda), espacamento 14px.
   int y = 48;
   const int x = 40;
-  video.drawTextNoDma(x, y, "F1  Esta tela",            fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F1  This Help",            fg, bg, false); y += 14;
   video.drawTextNoDma(x, y, "F2  COLOR / B&W",          fg, bg, false); y += 14;
   video.drawTextNoDma(x, y, "F3  Frameskip",            fg, bg, false); y += 14;
   video.drawTextNoDma(x, y, "F4  SELECT",               fg, bg, false); y += 14;
-  video.drawTextNoDma(x, y, "F5  Alterna J1 / J2",      fg, bg, false); y += 14;
-  video.drawTextNoDma(x, y, "F9  Menu de ROMs",         fg, bg, false); y += 14;
-  video.drawTextNoDma(x, y, "F10 Recarrega o jogo",     fg, bg, false); y += 14;
-  video.drawTextNoDma(x, y, "F11 RESET (inicia jogo)",  fg, bg, false); y += 14;
-  video.drawTextNoDma(x, y, "F12 QAOP <-> Setas do PC", fg, bg, false); y += 24;
+  video.drawTextNoDma(x, y, "F5  J1 QAOP / J2 ARROWS",      fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F9  ROMs menu",         fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F10 Reload Game",     fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F11 RESET",  fg, bg, false); y += 14;
+  //video.drawTextNoDma(x, y, "F12 QAOP <-> Setas do PC", fg, bg, false); y += 24;
 
   // "Aperte qualquer tecla para voltar" = 33 chars -> x = (40-33)*4 = 28.
   video.drawTextNoDma(28, y, "Aperte qualquer tecla para voltar", th, bg, false);
