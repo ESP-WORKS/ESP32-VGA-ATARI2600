@@ -16,6 +16,12 @@ extern "C" {
 // Overlay do indicador de porta do joystick (J1/J2), definido em video_vga.cpp.
 // Nao esta' em video_vga.h porque este e' o unico consumidor.
 extern "C" void vga_show_port(const char *msg);
+
+// Estado do swap J1/J2. Default TRUE = joystick mapeado em P1 (J1). A maioria
+// dos jogos do 2600 e' single-player e usa a porta esquerda (P1). Todo jogo
+// abre em J1; o SWAP so' inverte se o usuario mandar (F11 no jogo ou no menu).
+// Definida aqui em cima porque emu_init() e handleMenu() abaixo precisam usar.
+static bool joySwapped = true;
 //#include "logo.h"
 
 #ifdef HAS_TDISPLAY_LINK
@@ -383,6 +389,57 @@ void toggleMenu(bool on) {
   } else {
     menuOn = false;    
   }
+}
+
+
+// ============================================================================
+// Tela de Help (F1) -- overlay que pausa a emulacao e mostra os atalhos.
+// Padrao similar ao menuActive/toggleMenu, so' que sem interacao:
+// abre com F1, fecha com qualquer tecla (tratado em Ps2kbd.cpp::ps2kbd_poll).
+// go.cpp checa helpActive() e pula emu_Step enquanto verdadeiro, mas continua
+// drenando eventos do teclado pra detectar a tecla que fecha.
+// ============================================================================
+static bool helpOn = false;
+
+bool helpActive(void) { return helpOn; }
+
+void drawHelp(void)
+{
+  // Paleta similar a do menu: fundo azul escuro, texto branco, destaques ciano.
+  const uint16_t bg = RGBVAL16(0x00, 0x00, 0x50);
+  const uint16_t fg = RGBVAL16(0xff, 0xff, 0xff);
+  const uint16_t th = RGBVAL16(0x00, 0xff, 0xff);
+
+  video.fillScreenNoDma(bg);
+
+  // Cada char e' 8 pixels de largura, tela 320px = 40 chars. Para centralizar:
+  //   x = (320 - len*8) / 2 = (40 - len) * 4
+  // "ATARI 2600 - ATALHOS" = 20 chars -> x = (40-20)*4 = 80.
+  video.drawTextNoDma(80, 20, "ATARI 2600 - ATALHOS", th, bg, false);
+
+  // Corpo alinhado em x=40 (5 chars de margem esquerda), espacamento 14px.
+  int y = 48;
+  const int x = 40;
+  video.drawTextNoDma(x, y, "F1  Esta tela",            fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F2  COLOR / B&W",          fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F3  Frameskip",            fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F4  SELECT",               fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F5  Alterna J1 / J2",      fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F9  Menu de ROMs",         fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F10 Recarrega o jogo",     fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F11 RESET (inicia jogo)",  fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F12 QAOP <-> Setas do PC", fg, bg, false); y += 24;
+
+  // "Aperte qualquer tecla para voltar" = 33 chars -> x = (40-33)*4 = 28.
+  video.drawTextNoDma(28, y, "Aperte qualquer tecla para voltar", th, bg, false);
+  // "PORTED BY FG1998" = 16 chars -> x = (40-16)*4 = 96, ancorado embaixo.
+  video.drawTextNoDma(96, 216, "PORTED BY FG1998", th, bg, false);
+}
+
+void toggleHelp(bool on)
+{
+  helpOn = on;
+  if (on) drawHelp();
 }
 
 
@@ -1071,10 +1128,8 @@ int emu_LoadFileSeek(char * filename, char * buf, int size, int seek)
 }
 
 static int keypadval=0; 
-// Default TRUE = joystick mapeado em P1 (J1). A maioria dos jogos do 2600
-// e' single-player e usa a porta esquerda (P1). Fernando pediu que qualquer
-// jogo abra ja' em J1 -- o SWAP so' inverte se o usuario mandar.
-static bool joySwapped = true;
+// joySwapped definido no topo do arquivo (perto do include de video_vga.h),
+// porque emu_init() e handleMenu() precisam usa-lo antes deste ponto.
 static uint16_t bLastState;
 
 // ----- Ritmo da navegacao do menu ----------------------------------------

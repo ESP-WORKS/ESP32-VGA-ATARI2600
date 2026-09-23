@@ -4,9 +4,17 @@
 #include "devdrivers/keyboard.h"
 
 // Forward declarations pra evitar puxar emuapi.h/keyboard_osd.h inteiros
-// so' pra chamar duas funcoes. Ambas sao definidas em emuapi.cpp.
+// so' pra chamar poucas funcoes. Definidas em emuapi.cpp.
+//
+// emu_SwapJoysticks tem linkage C porque emuapi.cpp inclui emuapi.h dentro
+// de um bloco extern "C" -- entao a declaracao aqui tambem precisa ser
+// extern "C", senao o linker procura o nome mangled do C++ e nao acha.
+// As outras (menuActive, helpActive, toggleHelp) sao C++ puras (declaradas
+// em keyboard_osd.h sem extern "C") e ligam com `extern` sozinho.
 extern bool menuActive(void);
-extern int  emu_SwapJoysticks(int statusOnly);
+extern bool helpActive(void);
+extern void toggleHelp(bool on);
+extern "C" int emu_SwapJoysticks(int statusOnly);
 
 // 1 = imprime cada tecla recebida no serial. Use para confirmar se o teclado
 // esta chegando antes de procurar problema no mapeamento.
@@ -158,7 +166,8 @@ static uint16_t maskOf(fabgl::VirtualKey vk) {
     //   F12 = alterna joystick por teclado: QAOP+SPACE <-> Setas+SPACE
     //         (tratado direto no poll abaixo)
     //
-    // Atari 2600: alem dos switches em F1..F3 (SELECT/COLOR-B&W/frameskip),
+    // Atari 2600: alem dos switches F4 (SELECT) e F2/F3, mais:
+    //   F1  = tela de Help (pausa o jogo, qualquer tecla fecha)
     //   F5  = alterna J1/J2 durante o jogo (tratado direto no poll abaixo)
     //
     // A macro do F11: o c64_Input() digita LOAD"" + Enter, espera 2 s e
@@ -169,9 +178,10 @@ static uint16_t maskOf(fabgl::VirtualKey vk) {
     // entao F1/F2 nao colidem com nada, ao contrario do C64). Estes bits
     // (USER1/2/3) fluem por NIVEL ate' o Keyboard.c::keycons(), que os le a
     // cada quadro -- go.cpp NAO os consome.
-    case fabgl::VK_F1:     return M_KEY_USER2;  // SELECT (momentaneo)
+    case fabgl::VK_F1:     return 0;            // Help (tratado direto no poll)
     case fabgl::VK_F2:     return M_KEY_USER3;  // COLOR/B&W (toggle -- vira latch no poll abaixo)
     case fabgl::VK_F3:     return M_KEY_USER4;  // alterna frameskip
+    case fabgl::VK_F4:     return M_KEY_USER2;  // SELECT (momentaneo)
     case fabgl::VK_F9:     return M_KEY_MENU;   // menu de ROMs
     case fabgl::VK_F10:    return M_KEY_RESET;  // recarrega o jogo atual
     case fabgl::VK_F11:    return M_KEY_USER1;  // RESET do console (momentaneo -- inicia o jogo)
@@ -266,6 +276,22 @@ static void ps2kbd_poll(void)
 //    Serial.printf("[PS2] vk=%d down=%d ascii=%d\n",
 //                  (int)vk, (int)down, (int)kb->virtualKeyToASCII(vk));
 #endif
+
+    // Enquanto a tela de Help esta aberta, QUALQUER tecla fecha ela e nao
+    // propaga para o resto. Colocado bem no topo pra pegar antes de qualquer
+    // outro handler (F2 toggle, F5 swap, F12 joymode, letras/setas, etc).
+    // So' reage a `down` (rising edge) -- releases sao ignorados, senao a
+    // propria F1 que abriu ja fecharia no release.
+    if (helpActive() && down) {
+      toggleHelp(false);
+      continue;
+    }
+
+    // F1 = abre a tela de Help. Fechamento e' via o if acima (qualquer tecla).
+    if (vk == fabgl::VK_F1) {
+      if (down) toggleHelp(true);
+      continue;
+    }
 
     // F12 alterna o layout do joystick por teclado: QAOP+SPACE <-> Setas+SPACE.
     if (vk == fabgl::VK_F12) {

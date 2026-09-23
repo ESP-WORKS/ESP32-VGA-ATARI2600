@@ -187,6 +187,17 @@ static void keys_step(void)
 
 static void main_step(void)
 {
+  // Tela de Help (F1) tem prioridade sobre tudo. Nao roda emu_Step (o jogo
+  // fica pausado no ultimo quadro renderizado, coberto pela tela do Help),
+  // mas continuamos drenando eventos do teclado: qualquer tecla fecha o
+  // Help, e essa deteccao mora dentro do ps2kbd_poll (chamado via
+  // emu_ReadKeys -> ps2kbd_get_mask abaixo).
+  if (helpActive()) {
+    (void)emu_ReadKeys();
+    vTaskDelay(20 / portTICK_PERIOD_MS);
+    return;
+  }
+
   if (menuActive()) {
 #ifdef HAS_TDISPLAY_LINK
     link_poll();
@@ -326,8 +337,8 @@ void setup()
   Serial.begin(115200);
   delay(200);
   Serial.println("\n=== MCUME espvcs (Atari 2600) - TTGO VGA32 ===");
-  Serial.println("PS/2:  F9=menu  F10=recarrega  F11=RESET  F1=SELECT  F2=COLOR/BW  F3=frameskip  F12=joystick(on/off)");
-  Serial.println("Joystick: Q=cima A=baixo O=dir P=esq SPACE=fire (J2 ativo por padrao)");
+  Serial.println("PS/2:  F1=Help  F2=COLOR/BW  F3=frameskip  F4=SELECT  F5=J1/J2  F9=menu  F10=recarrega  F11=RESET  F12=QAOP<->Setas");
+  Serial.println("Joystick: Q=cima A=baixo O=dir P=esq SPACE=fire (J1 ativo por padrao)");
 
   // Integracao com o bootloader (fg1998/esp32-bootloader): apagar o otadata
   // faz o ESP32 voltar para a particao factory no proximo boot em vez de
