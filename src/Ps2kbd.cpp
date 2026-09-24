@@ -2,6 +2,7 @@
 #include <fabgl.h>
 #include "ps2kbd.h"
 #include "devdrivers/keyboard.h"
+#include "esp_partition.h"   // F12 = sair pro bootloader (apaga otadata)
 
 // Forward declarations pra evitar puxar emuapi.h/keyboard_osd.h inteiros
 // so' pra chamar poucas funcoes. Definidas em emuapi.cpp.
@@ -109,8 +110,9 @@ static inline uint16_t evPop(void) {
 //       joystick e sao SUPRIMIDAS do caminho de teclado -- senao no jogo
 //       elas mandariam letra + direcao ao mesmo tempo. Sem o toggle, digitar
 //       Q/A/O/P no BASIC viraria comando de joystick.
-// Default 2 pra Atari 2600 (jogos jogaveis de imediato com QAOP no PS/2).
-static int s_joyMode = 2;
+// Default 1 (Setas + SPACE): mais intuitivo pro Atari 2600, joga de imediato
+// com as setas. F5 alterna pra QAOP (J2) quando quiser.
+static int s_joyMode = 1;
 
 // Por que dois acumuladores:
 //   - O jogo quer NIVEL: seta segurada = direcao mantida. Isso e' s_mask.
@@ -300,7 +302,21 @@ static void ps2kbd_poll(void)
       continue;
     }
 
-    // (F12 ficou livre: o toggle QAOP <-> Setas foi movido pro F5, abaixo.)
+    // F12 = SAIR do emulador de volta pro bootloader (particao factory).
+    // O ESP32 so' cai na factory se o otadata estiver apagado -- o boot deste
+    // firmware ja' apaga, mas reapagamos aqui pra garantir independente do
+    // estado, e reiniciamos. Rising edge apenas.
+    if (vk == fabgl::VK_F12) {
+      if (down) {
+        Serial.println("[F12] saindo para o bootloader (factory)...");
+        Serial.flush();
+        const esp_partition_t* otadata = esp_partition_find_first(
+            ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
+        if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
+        esp_restart();
+      }
+      continue;
+    }
 
     // F2 = switch COLOR/B&W do 2600. NO CONSOLE REAL isto e' uma CHAVE
     // MECANICA: voce flipa e ela fica. Por isso o F2 aqui NAO segue o

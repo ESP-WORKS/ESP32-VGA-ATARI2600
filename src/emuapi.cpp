@@ -97,7 +97,7 @@ static const uint16_t * logo = deflogo;
 
 #define CALIBRATION_FILE    "/sdcard/cal.cfg"
 
-#define MAX_FILENAME_SIZE   28    // largura de EXIBICAO, em caracteres
+#define MAX_FILENAME_SIZE   37    // largura de EXIBICAO, em caracteres
 #define MENU_NAME_MAXLEN    63    // tamanho maximo do nome REAL do arquivo
 
 // Fonte do menu: 8x8 (doublesize=false), nao mais 8x16. Com isso cabem bem
@@ -427,18 +427,19 @@ void drawHelp(void)
   const int x = 40;
   video.drawTextNoDma(x, y, "F1  This Help",            fg, bg, false); y += 14;
   video.drawTextNoDma(x, y, "F2  COLOR / B&W",          fg, bg, false); y += 14;
-  video.drawTextNoDma(x, y, "F3  Frameskip",            fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F3  FRAMESKIP",            fg, bg, false); y += 14;
   video.drawTextNoDma(x, y, "F4  SELECT",               fg, bg, false); y += 14;
-  video.drawTextNoDma(x, y, "F5  J1 ARROWS / J2 QAOP",      fg, bg, false); y += 14;
-  video.drawTextNoDma(x, y, "F9  ROMs menu",         fg, bg, false); y += 14;
-  video.drawTextNoDma(x, y, "F10 Reload Game",     fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F5  J1 QAOP / J2 ARROWS",      fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F9  ROMS MENU",         fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F10 RELOAD GAME",     fg, bg, false); y += 14;
   video.drawTextNoDma(x, y, "F11 RESET",  fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F12 EXIT TO BOOTLOADER",  fg, bg, false); y += 14;
   //video.drawTextNoDma(x, y, "F12 QAOP <-> Setas do PC", fg, bg, false); y += 24;
 
   // "Aperte qualquer tecla para voltar" = 33 chars -> x = (40-33)*4 = 28.
   video.drawTextNoDma(28, y, "Press any key to return", th, bg, false);
   // "PORTED BY FG1998" = 16 chars -> x = (40-16)*4 = 96, ancorado embaixo.
-  video.drawTextNoDma(96, 216, "PORTED BY FG1998", th, bg, false);
+  video.drawTextNoDma(40, 216, "VER 0.0.9 - PORTED BY FG1998", th, bg, false);
 }
 
 void toggleHelp(bool on)
