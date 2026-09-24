@@ -699,6 +699,77 @@ draw_vector_q (void)
   unified_count = 0;
 }
 
+/* Versao SEM COLISAO do draw_vector_q, usada NAS LINHAS DE OVERSCAN.
+ * Renderiza os pixels exatamente como o draw_vector_q (mesmo lookup de cor,
+ * mesmo tratamento de scores, mesmo consumo do unified[]), mas NAO faz
+ * col_state |= col_table[colval]. Motivo: o placar do Enduro (e de outros
+ * Activision) e' desenhado no overscan com P0/P1 sobre o playfield; se o
+ * overscan acumular colisao, o jogo le colisoes falsas (carro/pista) no frame
+ * seguinte e reposiciona/trava o carrinho. O path antigo (update_registers)
+ * nunca tocava col_state aqui -- esta funcao restaura esse comportamento
+ * mantendo o placar visivel. */
+static __inline void
+draw_vector_q_nocol (void)
+{
+  int i;
+  int uct = 0;
+  int colind, colval;
+  unsigned int pad;
+  unsigned int tv_ptr;
+  tv_ptr=line_ptr;
+
+  /* Check for scores */
+  if(scores_val ==2)
+    {
+      scores_val=1;
+      colour_lookup=colour_ptrs[norm_val][scores_val];
+    }
+
+  /* Use starting changes */
+  while (uct < unified_count && unified[uct].x < 0)
+    use_unified_change (&unified[uct++]);
+
+  for (i = 0; i < 80; i++)
+    {
+      if (uct < unified_count && unified[uct].x == i)
+	use_unified_change (&unified[uct++]);
+
+      if((colval=colvect[i])){
+	/* SEM col_state |= aqui: overscan nao gera colisao */
+	colind=colour_lookup[colval];
+	pad=colour_table[colind];
+      } else
+	pad=colour_table[BK_COLOUR];
+
+      VBuf[tv_ptr++] = pad;
+    }
+
+  /* Check for scores */
+  if(scores_val ==1)
+    {
+      scores_val=2;
+      colour_lookup=colour_ptrs[norm_val][scores_val];
+    }
+  for (i = 80; i < 160; i++)
+    {
+      if (uct < unified_count && unified[uct].x == i)
+	use_unified_change (&unified[uct++]);
+
+      if((colval=colvect[i])){
+	/* SEM col_state |= aqui: overscan nao gera colisao */
+	colind=colour_lookup[colval];
+	pad=colour_table[colind];
+      } else
+	pad=colour_table[BK_COLOUR];
+
+      VBuf[tv_ptr++] = pad;
+    }
+
+  while (uct < unified_count)
+    use_unified_change (&unified[uct++]);
+  unified_count = 0;
+}
+
 /* Versao de SO' COLISAO do draw_vector_q, usada nos quadros pulados pelo
  * frameskip. Faz a mesma varredura (incluindo o processamento de
  * unified_change e scores, para manter o estado consistente) e atualiza o
@@ -788,14 +859,23 @@ tv_raster (int line)
   //        lookup de cor + escrita no VBuf (Pitfall & cia continuam corretos).
   //  - quadro normal: colisao + render.
   //
-  // NOTA: uma tentativa anterior separava um ramo de overscan (tv_height ate'
-  // tv_height+tv_overscan) que chamava draw_playfield/draw_ball mas pulava
-  // pl_draw/draw_missile, consumindo pl_change em bulk. Isso corrigia o
-  // carrinho deslocado do Enduro MAS travava no reset do jogo. Revertido para
-  // este path simples ate' entender melhor o bug do reset.
+  // OVERSCAN (tv_height .. tv_height+tv_overscan): renderiza os pixels do
+  // placar normalmente, mas via draw_vector_q_nocol -- que NAO acumula
+  // col_state. O path antigo (update_registers) nunca tocava col_state no
+  // overscan; renderizar o placar com o draw_vector_q normal injetava colisoes
+  // falsas dos digitos (P0/P1 sobre o playfield), que o Enduro le no frame
+  // seguinte e usa pra reposicionar/travar o carrinho. Aqui o placar aparece
+  // e a colisao fica identica ao comportamento que funcionava. NAO mexemos no
+  // consumo do pl_change (por isso nao reproduz o freeze da tentativa antiga).
   if (line >= tv_height + tv_overscan)
   {
       update_registers ();
+  }
+  else if (line >= tv_height)
+  {
+      reset_vector ();
+      tv_rasterise (line);
+      draw_vector_q_nocol ();       // placar visivel, sem colisao
   }
   else if (g_fskip)
   {
