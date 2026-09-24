@@ -17,6 +17,11 @@ extern "C" {
 // Nao esta' em video_vga.h porque este e' o unico consumidor.
 extern "C" void vga_show_port(const char *msg);
 
+// ps2kbd.cpp: modo do joystick de teclado (1=Setas, 2=QAOP). O indicador da
+// tela agora reflete ESTE layout (nao a porta joySwapped), pra nascer coerente
+// com o que o F5 alterna. C++ puro (sem extern "C"), igual ao go.cpp.
+int ps2kbd_get_joy_mode(void);
+
 // Estado do swap J1/J2. Default TRUE = joystick mapeado em P1 (J1). A maioria
 // dos jogos do 2600 e' single-player e usa a porta esquerda (P1). Todo jogo
 // abre em J1; o SWAP so' inverte se o usuario mandar (F11 no jogo ou no menu).
@@ -415,7 +420,7 @@ void drawHelp(void)
   // Cada char e' 8 pixels de largura, tela 320px = 40 chars. Para centralizar:
   //   x = (320 - len*8) / 2 = (40 - len) * 4
   // "ATARI 2600 - ATALHOS" = 20 chars -> x = (40-20)*4 = 80.
-  video.drawTextNoDma(80, 20, "ATARI 2600 - ATALHOS", th, bg, false);
+  video.drawTextNoDma(80, 20, "ATARI 2600 - KEYMAP", th, bg, false);
 
   // Corpo alinhado em x=40 (5 chars de margem esquerda), espacamento 14px.
   int y = 48;
@@ -424,14 +429,14 @@ void drawHelp(void)
   video.drawTextNoDma(x, y, "F2  COLOR / B&W",          fg, bg, false); y += 14;
   video.drawTextNoDma(x, y, "F3  Frameskip",            fg, bg, false); y += 14;
   video.drawTextNoDma(x, y, "F4  SELECT",               fg, bg, false); y += 14;
-  video.drawTextNoDma(x, y, "F5  J1 QAOP / J2 ARROWS",      fg, bg, false); y += 14;
+  video.drawTextNoDma(x, y, "F5  J1 ARROWS / J2 QAOP",      fg, bg, false); y += 14;
   video.drawTextNoDma(x, y, "F9  ROMs menu",         fg, bg, false); y += 14;
   video.drawTextNoDma(x, y, "F10 Reload Game",     fg, bg, false); y += 14;
   video.drawTextNoDma(x, y, "F11 RESET",  fg, bg, false); y += 14;
   //video.drawTextNoDma(x, y, "F12 QAOP <-> Setas do PC", fg, bg, false); y += 24;
 
   // "Aperte qualquer tecla para voltar" = 33 chars -> x = (40-33)*4 = 28.
-  video.drawTextNoDma(28, y, "Aperte qualquer tecla para voltar", th, bg, false);
+  video.drawTextNoDma(28, y, "Press any key to return", th, bg, false);
   // "PORTED BY FG1998" = 16 chars -> x = (40-16)*4 = 96, ancorado embaixo.
   video.drawTextNoDma(96, 216, "PORTED BY FG1998", th, bg, false);
 }
@@ -718,10 +723,11 @@ int handleMenu(uint16_t bClick)
   // (buffer separado da arena), entao a RAM dos nomes volta ao emulador antes
   // do jogo carregar. O menu relê quando reabrir (toggleMenu).
   if (action == ACTION_RUN) {
-    // Todo jogo abre em J1. Se o usuario tinha alternado pra J2 no jogo
-    // anterior, volta ao default automaticamente.
+    // Reset da porta pra J1 (nao afeta o teclado, que e' imune ao swap agora).
     joySwapped = true;
-    vga_show_port("J1");
+    // Indicador reflete o LAYOUT do teclado (J1=Setas, J2=QAOP), coerente com
+    // o F5. Antes forcava "J1" enquanto o layout era QAOP -- dessincronizado.
+    vga_show_port(ps2kbd_get_joy_mode() == 1 ? "J1" : "J2");
     menu_freeCatalog();
     return action;
   }
@@ -923,8 +929,11 @@ void emu_init(void)
 
   emu_InitJoysticks();
 
-  // Indicador de porta do joystick aparece desde o boot. Default J1.
-  vga_show_port(joySwapped ? "J1" : "J2");
+  // Indicador desde o boot. Mostra o LAYOUT do teclado (J1=Setas, J2=QAOP),
+  // coerente com o que o F5 alterna. Antes mostrava a porta (joySwapped), que
+  // nascia "J1" enquanto o layout era QAOP -- dessincronizado, fazia o 1o F5
+  // "nao mudar nada" na tela.
+  vga_show_port(ps2kbd_get_joy_mode() == 1 ? "J1" : "J2");
 
   // Calibracao de toque removida daqui: a VGA32 nao tem touchscreen
   // (video.isTouching() e' um stub que sempre devolve false), entao
@@ -1248,10 +1257,9 @@ int emu_ReadKeys(void)
   j1 |= link_get_mask();
 #endif
 #ifdef HAS_PS2KBD
-  // Le hotkeys do PS/2 (F1/F5/F6). As setas ja' NAO estao aqui: ficaram so'
-  // em s_events, consumido pelo menu -- no jogo elas viram cursor, nao
-  // joystick. Ver ps2kbd_poll() em Ps2kbd.cpp para a separacao.
-  j1 |= ps2kbd_get_mask();
+  // O teclado (joystick + hotkeys) NAO entra aqui. Ele e' adicionado DEPOIS do
+  // swap, no bloco marcado mais abaixo, pra NAO ser deslocado por ele. Ver la'
+  // o porque (keyjoy/keytrig no Keyboard.c leem so' o byte baixo).
 #endif
 
   uint16_t j2 = 0;
@@ -1288,10 +1296,18 @@ int emu_ReadKeys(void)
   retval |= hot;
 
 #ifdef HAS_PS2KBD
-  // Joystick por teclado (F12): os bits ja vem posicionados como M_JOY1_*
-  // ou M_JOY2_* conforme o modo. Adicionados DEPOIS do swap para nao serem
-  // embaralhados -- o usuario escolheu a porta, nao depende do swap global.
-  // ps2kbd_get_mask() devolve os bits de joyMode junto com os hotkeys.
+  // Joystick por teclado: os bits vem como MASK_JOY2_* (byte baixo, 0x01..0x10).
+  // Adicionados AQUI, DEPOIS do swap, pra NAO serem deslocados por ele.
+  //
+  // Por que: keyjoy()/keytrig() no Keyboard.c leem MASK_JOY2_* FIXO (byte
+  // baixo) e ja' colocam o teclado no P0. Se o teclado entrasse antes do swap,
+  // com joySwapped=true (J1) o "<<8" empurrava os bits pra MASK_JOY1_* (byte
+  // alto) e o Keyboard.c nao os achava -- direcoes E botao morriam em J1, so'
+  // funcionavam em J2. Fixando no byte baixo, o teclado funciona em J1 e J2, e
+  // o swap (F5) passa a valer so' pro joystick fisico/link, nao pro teclado.
+  // ps2kbd_get_mask() traz junto os hotkeys (F9/F10/F11), que tambem nao devem
+  // ser deslocados.
+  retval |= ps2kbd_get_mask();
 #endif
 
   // Botoes fisicos USER1..4 NAO existem na TTGO VGA32. Os GPIOs 35/34/39/36

@@ -305,13 +305,13 @@ void emu_loop(void)
         float coreMs  = frameMs - drawMs;          // tudo menos o blit
         float cpuMs   = coreMs - renderMs;         // CPU 6507 + memoria + overhead
 
-        printf("[tel] FPS=%.1f  quadro=%.2fms (cpu=%.2f + render=%.2f + video=%.2f)  %s  heapDMA=%u free=%u\n",
+        /*printf("[tel] FPS=%.1f  quadro=%.2fms (cpu=%.2f + render=%.2f + video=%.2f)  %s  heapDMA=%u free=%u\n",
                fps, frameMs, cpuMs, renderMs, drawMs,
                (frameMs >= 16.7f) ? "CPU-BOUND" : "com folga",
                (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
                (unsigned)ESP.getFreeHeap());
         fflush(stdout);
-
+        */
         s_frames = 0; s_workAcc = 0; s_winStart = 0;
       }
     }

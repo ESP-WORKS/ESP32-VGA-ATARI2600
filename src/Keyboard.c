@@ -112,4 +112,3 @@ void keytrig(void) {
 			tiaRead[INPT4]=0x80;
 	}
 }
-

@@ -16,6 +16,10 @@ extern bool helpActive(void);
 extern void toggleHelp(bool on);
 extern "C" int emu_SwapJoysticks(int statusOnly);
 
+// video_vga.cpp: overlay do indicador no canto da tela (o "J1"/"J2"). Usado
+// pelo F5 para refletir na tela a troca de layout Setas/QAOP.
+extern "C" void vga_show_port(const char *msg);
+
 // 1 = imprime cada tecla recebida no serial. Use para confirmar se o teclado
 // esta chegando antes de procurar problema no mapeamento.
 #define PS2_TRACE 1   // TEMPORARIO: veja no serial o vk/ascii de cada tecla; volte a 0 depois
@@ -203,8 +207,11 @@ static uint16_t joyMaskOf(fabgl::VirtualKey vk, int mode) {
     switch (vk) {
       case fabgl::VK_UP:     return M_JOY2_UP;
       case fabgl::VK_DOWN:   return M_JOY2_DOWN;
-      case fabgl::VK_LEFT:   return M_JOY2_LEFT;
-      case fabgl::VK_RIGHT:  return M_JOY2_RIGHT;
+      // L/R invertidos DE PROPOSITO: neste teclado a seta fisica gera o VK
+      // cruzado (direita -> VK_LEFT), entao mapear direto deixava o movimento
+      // trocado no jogo. O QAOP (mesmos bits) fica certo porque usa O/P.
+      case fabgl::VK_LEFT:   return M_JOY2_RIGHT;
+      case fabgl::VK_RIGHT:  return M_JOY2_LEFT;
       case fabgl::VK_SPACE:  return M_JOY2_BTN;
       default: return 0;
     }
@@ -293,21 +300,7 @@ static void ps2kbd_poll(void)
       continue;
     }
 
-    // F12 alterna o layout do joystick por teclado: QAOP+SPACE <-> Setas+SPACE.
-    if (vk == fabgl::VK_F12) {
-      if (down) {
-        s_joyMode = (s_joyMode == 2) ? 1 : 2;
-        s_mask &= ~(M_JOY2_UP | M_JOY2_DOWN | M_JOY2_LEFT |
-                    M_JOY2_RIGHT | M_JOY2_BTN |
-                    M_JOY1_UP | M_JOY1_DOWN | M_JOY1_LEFT |
-                    M_JOY1_RIGHT | M_JOY1_BTN);
-        s_navLevel = 0;
-        s_navNextMs = 0;
-        Serial.printf("[joy] joystick teclado: %s\n",
-                      (s_joyMode == 2) ? "QAOP + SPACE (Sinclair)" : "Setas + SPACE");
-      }
-      continue;
-    }
+    // (F12 ficou livre: o toggle QAOP <-> Setas foi movido pro F5, abaixo.)
 
     // F2 = switch COLOR/B&W do 2600. NO CONSOLE REAL isto e' uma CHAVE
     // MECANICA: voce flipa e ela fica. Por isso o F2 aqui NAO segue o
@@ -323,13 +316,23 @@ static void ps2kbd_poll(void)
       continue;
     }
 
-    // F5 = alterna J1/J2 durante o jogo. Nao mapeada pra nada no 2600, entao
-    // pode ser dedicada. Dentro do menu, o handleMenu() ja alterna via F11
-    // (MASK_KEY_USER1); aqui a gente cobre o caso de trocar de porta sem
-    // precisar abrir o menu. Rising edge apenas -- segurar nao repete.
+    // F5 = alterna o layout do joystick por teclado: QAOP+SPACE <-> Setas+SPACE
+    // (era o F12; movido pra ca'). Atualiza o indicador na tela (J1=Setas,
+    // J2=QAOP) e limpa o s_mask do joystick pra nao sobrar direcao presa do
+    // modo anterior. O swap de porta que estava aqui saiu (nao era usado, e o
+    // teclado agora funciona em qualquer porta). Rising edge apenas.
     if (vk == fabgl::VK_F5) {
-      if (down && !menuActive()) {
-        emu_SwapJoysticks(0);   // atualiza indicador tambem
+      if (down) {
+        s_joyMode = (s_joyMode == 2) ? 1 : 2;
+        s_mask &= ~(M_JOY2_UP | M_JOY2_DOWN | M_JOY2_LEFT |
+                    M_JOY2_RIGHT | M_JOY2_BTN |
+                    M_JOY1_UP | M_JOY1_DOWN | M_JOY1_LEFT |
+                    M_JOY1_RIGHT | M_JOY1_BTN);
+        s_navLevel = 0;
+        s_navNextMs = 0;
+        vga_show_port(s_joyMode == 1 ? "J1" : "J2");
+        Serial.printf("[joy] joystick teclado: %s\n",
+                      (s_joyMode == 2) ? "QAOP + SPACE (Sinclair)" : "Setas + SPACE");
       }
       continue;
     }
